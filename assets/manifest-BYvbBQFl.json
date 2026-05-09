@@ -1,0 +1,9 @@
+﻿{
+    "name": "Elena Method AI",
+    "short_name": "ElenaAI",
+    "start_url": "/ElenaMethodAI/",
+    "display": "standalone",
+    "background_color": "#0A0A1A",
+    "theme_color": "#0FFF50",
+    "icons": []
+}
