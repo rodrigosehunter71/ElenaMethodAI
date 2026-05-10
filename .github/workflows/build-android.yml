@@ -47,14 +47,14 @@ jobs:
           mkdir -p android/app
           mkdir -p android
           
-      - name: Process Secrets
+      - name: Process Secrets (Smart Decoder & Fix Paths)
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
           KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
           KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
           python3 << 'PYEOF'
-          import os, json, base64
+          import os, json, base64, shutil
           
           def process(name, path, check_json=False):
               val = os.getenv(name, "")
@@ -68,7 +68,7 @@ jobs:
                   if pad != 4: val += "=" * pad
                   with open(path, "wb") as f:
                       f.write(base64.b64decode(val))
-                  print(f"✅ {name} decoded from Base64")
+                  print(f"✅ {name} decoded to {path}")
               except Exception as e:
                   print(f"⚠️ Base64 failed ({e}), saving as plain text")
                   with open(path, "w") as f:
@@ -81,15 +81,26 @@ jobs:
               else:
                   print(f"✅ {path} created")
           
+          # 1. Google Services
           process("GOOGLE_SERVICES", "android/app/google-services.json", True)
+          
+          # 2. Key Properties
           process("KEY_PROPERTIES", "android/key.properties", False)
-          process("KEYSTORE", "android/app/elena-release.jks", False)
+          
+          # 3. Keystore: Save to root android/ folder (standard location)
+          process("KEYSTORE", "android/elena-release.jks", False)
+          
+          # FIX: Save a copy in android/app/ just in case key.properties expects it there
+          # This covers both common configurations.
+          if os.path.exists("android/elena-release.jks"):
+              shutil.copy("android/elena-release.jks", "android/app/elena-release.jks")
+              print("✅ Backup keystore saved to android/app/")
           PYEOF
           
       - name: Make gradlew executable
         run: chmod +x android/gradlew
         
-      - name: Build AAB
+      - name: Build AAB (Signed)
         run: cd android && ./gradlew bundleRelease --no-daemon
         
       - name: Upload AAB
