@@ -56,10 +56,12 @@ jobs:
           if echo -n '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks 2>/dev/null; then
             echo "✅ Keystore decodificado correctamente"
           else
-            # Fallback: intentar sin pipe
             printf '%s' '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks || echo "⚠️ Warning: Keystore may not be valid"
           fi
           
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+        
       - name: Build AAB
         run: cd android && ./gradlew bundleRelease
         
