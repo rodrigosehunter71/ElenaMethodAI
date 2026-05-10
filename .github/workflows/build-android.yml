@@ -46,24 +46,24 @@ jobs:
         run: |
           mkdir -p android/app
           
-          # Decodificar google-services.json
+          # GOOGLE_SERVICES: Texto plano (JSON)
           if [ -n "$GOOGLE_SERVICES" ]; then
-            printf '%s' "$GOOGLE_SERVICES" | base64 -d | tr -d '\r' > android/app/google-services.json
+            printf '%s' "$GOOGLE_SERVICES" > android/app/google-services.json
             echo "✅ google-services.json listo"
           fi
           
-          # Decodificar key.properties (quita saltos de línea de Windows)
+          # KEY_PROPERTIES: Texto plano (sin Base64)
           if [ -n "$KEY_PROPERTIES" ]; then
-            printf '%s' "$KEY_PROPERTIES" | base64 -d | tr -d '\r' > android/key.properties
+            printf '%s' "$KEY_PROPERTIES" | sed 's/\r$//' > android/key.properties
             echo "✅ key.properties listo:"
             cat android/key.properties
           fi
           
-          # Decodificar keystore (guarda en ambas rutas por compatibilidad)
+          # KEYSTORE: Base64 (único archivo binario)
           if [ -n "$KEYSTORE" ]; then
             printf '%s' "$KEYSTORE" | base64 -d > android/app/elena-release.jks
             cp android/app/elena-release.jks android/elena-release.jks
-            echo "✅ Keystore listo en android/app/ y android/"
+            echo "✅ Keystore decodificado"
           fi
           
       - name: Build Signed AAB
