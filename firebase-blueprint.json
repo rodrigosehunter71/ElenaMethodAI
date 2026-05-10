@@ -1,0 +1,188 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information including role (student or teacher).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique identifier for the user." },
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "displayName": { "type": "string", "description": "User's display name." },
+        "fullName": { "type": "string", "description": "User's full name." },
+        "photoURL": { "type": "string", "description": "URL to user's profile picture." },
+        "role": { "type": "string", "enum": ["student", "teacher"], "description": "User's role in the application." },
+        "classroomId": { "type": "string", "description": "ID of the classroom the user belongs to." },
+        "phoneNumber": { "type": "string" },
+        "grade": { "type": "string" },
+        "section": { "type": "string" },
+        "address": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Classroom": {
+      "title": "Classroom",
+      "description": "A virtual classroom created by a teacher.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "joinCode": { "type": "string", "description": "Unique 6-character code for students to join." },
+        "studentIds": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "teacherId", "joinCode"]
+    },
+    "Unit": {
+      "title": "Unit",
+      "description": "Grammar unit content.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unit ID (e.g., unit1)." },
+        "title": { "type": "string", "description": "Title of the unit." },
+        "level": { "type": "string", "description": "CEFR level (A1-C2)." },
+        "order": { "type": "number", "description": "Order of the unit." },
+        "content": { "type": "string", "description": "Full content of the unit in Markdown." }
+      },
+      "required": ["id", "title", "level", "order"]
+    },
+    "Exercise": {
+      "title": "Exercise",
+      "description": "Interactive exercise for a unit.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "unitId": { "type": "string" },
+        "type": { "type": "string", "enum": ["multiple-choice", "fill-in-blank"] },
+        "question": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "correctAnswer": { "type": "string" },
+        "feedback": { "type": "string" }
+      },
+      "required": ["id", "unitId", "type", "question", "correctAnswer"]
+    },
+    "StudentProgress": {
+      "title": "StudentProgress",
+      "description": "Tracks student progress through units.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "unitId": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "score": { "type": "number" },
+        "lastAccessed": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "unitId"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Message in the chat between student and teacher.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "receiverId", "text", "timestamp"]
+    },
+    "UnitResource": {
+      "title": "UnitResource",
+      "description": "Additional learning resources for a unit.",
+      "type": "object",
+      "properties": {
+        "unitId": { "type": "string" },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "type": { "type": "string", "enum": ["link", "video", "audio", "pdf"] },
+        "teacherId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["unitId", "title", "url", "teacherId", "createdAt"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "A specific task assigned to a classroom by a teacher.",
+      "type": "object",
+      "properties": {
+        "classroomId": { "type": "string" },
+        "unitId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "gamesEnabled": { "type": "boolean" },
+        "exercisesEnabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["classroomId", "unitId", "teacherId", "createdAt"]
+    },
+    "LessonScript": {
+      "title": "LessonScript",
+      "description": "Custom teacher guide or instruction for a classroom.",
+      "type": "object",
+      "properties": {
+        "classroomId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string", "description": "Markdown content for the guide." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["classroomId", "teacherId", "title", "content", "createdAt"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Daily attendance record for students in a classroom.",
+      "type": "object",
+      "properties": {
+        "classroomId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["present", "absent", "late"] },
+        "teacherId": { "type": "string" }
+      },
+      "required": ["classroomId", "studentId", "date", "status", "teacherId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile collection."
+    },
+    "/classrooms/{classroomId}": {
+      "schema": "Classroom",
+      "description": "Collection of virtual classrooms."
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Attendance logs."
+    },
+    "/units/{unitId}": {
+      "schema": "Unit",
+      "description": "Collection of grammar units."
+    },
+    "/units/{unitId}/exercises/{exerciseId}": {
+      "schema": "Exercise",
+      "description": "Subcollection of exercises for each unit."
+    },
+    "/progress/{progressId}": {
+      "schema": "StudentProgress",
+      "description": "Collection tracking student progress (ID: userId_unitId)."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Chat messages between users."
+    },
+    "/unit_resources/{resourceId}": {
+      "schema": "UnitResource",
+      "description": "Additional materials for units."
+    },
+    "/assignments/{assignmentId}": {
+      "schema": "Assignment",
+      "description": "Teacher assignments to classrooms."
+    },
+    "/lesson_scripts/{scriptId}": {
+      "schema": "LessonScript",
+      "description": "Teacher guides and scripts per classroom."
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "ElenaMethod AI - English Training",
+  "description": "Plataforma premium para el aprendizaje de gramática inglesa con tutoría por IA, ejercicios interactivos coordinados y sincronización docente-alumno en tiempo real.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
