@@ -45,80 +45,26 @@ jobs:
           KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
           mkdir -p android/app
-          python3 << 'PYEOF'
-          import os, json, base64, shutil, re
-
-          def clean_value(val):
-              """Limpia saltos de línea y espacios invisibles"""
-              return val.replace('\r', '').replace('\n', ' ').strip()
-
-          def try_decode_base64(val):
-              """Intenta decodificar Base64, si falla devuelve el valor original"""
-              try:
-                  clean = "".join(val.split())  # Elimina TODOS los espacios
-                  return base64.b64decode(clean)
-              except:
-                  return None
-
-          # === 1. GOOGLE_SERVICES ===
-          gs = os.environ.get("GOOGLE_SERVICES", "")
-          if gs:
-              gs_clean = clean_value(gs)
-              
-              # Intentar decodificar si parece Base64
-              if re.match(r'^[A-Za-z0-9+/=]+$', gs_clean.replace(' ', '')):
-                  decoded = try_decode_base64(gs_clean)
-                  if decoded:
-                      try:
-                          # Validar que sea JSON
-                          json.loads(decoded.decode('utf-8'))
-                          with open("android/app/google-services.json", "wb") as f:
-                              f.write(decoded)
-                          print("✅ google-services.json decodificado desde Base64")
-                      except:
-                          # Si no es JSON válido, guardar como texto plano
-                          with open("android/app/google-services.json", "w") as f:
-                              f.write(gs_clean)
-                          print("✅ google-services.json guardado como texto plano")
-                  else:
-                      with open("android/app/google-services.json", "w") as f:
-                          f.write(gs_clean)
-              else:
-                  # No parece Base64, guardar como texto plano
-                  with open("android/app/google-services.json", "w") as f:
-                      f.write(gs_clean)
-              
-              # Validación final
-              try:
-                  with open("android/app/google-services.json", "r") as f:
-                      json.load(f)
-                  print("✅ google-services.json es JSON válido")
-              except json.JSONDecodeError as e:
-                  print(f"❌ ERROR: JSON inválido: {e}")
-                  print("Contenido parcial:", open("android/app/google-services.json").read(200))
-                  exit(1)
-
-          # === 2. KEY_PROPERTIES ===
-          kp = os.environ.get("KEY_PROPERTIES", "")
-          if kp:
-              with open("android/key.properties", "w") as f:
-                  f.write(clean_value(kp))
-              print("✅ key.properties creado")
-
-          # === 3. KEYSTORE (Base64 obligatorio) ===
-          ks = os.environ.get("KEYSTORE", "")
-          if ks:
-              ks_clean = "".join(ks.split())  # Eliminar TODOS los espacios
-              try:
-                  ks_bytes = base64.b64decode(ks_clean)
-                  with open("android/app/elena-release.jks", "wb") as f:
-                      f.write(ks_bytes)
-                  shutil.copy("android/app/elena-release.jks", "android/elena-release.jks")
-                  print(f"✅ Keystore decodificado ({len(ks_bytes)} bytes)")
-              except Exception as e:
-                  print(f"❌ Error con Keystore: {e}")
-                  exit(1)
-          PYEOF
+          
+          # GOOGLE_SERVICES: Texto plano JSON (ya validado)
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            printf '%s' "$GOOGLE_SERVICES" > android/app/google-services.json
+            echo "✅ google-services.json creado"
+          fi
+          
+          # KEY_PROPERTIES: Texto plano
+          if [ -n "$KEY_PROPERTIES" ]; then
+            printf '%s' "$KEY_PROPERTIES" | tr -d '\r' > android/key.properties
+            echo "✅ key.properties creado"
+          fi
+          
+          # KEYSTORE: Base64 (limpieza de espacios invisibles)
+          if [ -n "$KEYSTORE" ]; then
+            CLEAN=$(printf '%s' "$KEYSTORE" | tr -d '[:space:]')
+            printf '%s' "$CLEAN" | base64 -d > android/app/elena-release.jks
+            cp android/app/elena-release.jks android/elena-release.jks
+            echo "✅ Keystore listo"
+          fi
           
       - name: Build Signed AAB
         run: |
