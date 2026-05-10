@@ -47,64 +47,67 @@ jobs:
           mkdir -p android/app
           mkdir -p android
           
-      - name: Process GOOGLE_SERVICES
+      # PASO CLAVE: Script inteligente para manejar Secrets corruptos o en texto plano
+      - name: Process Secrets (Smart Decoder)
         run: |
-          echo " Procesando google-services.json..."
-          SECRET="${{ secrets.GOOGLE_SERVICES }}"
-          if [ -z "$SECRET" ]; then echo "❌ ERROR: Vacío" && exit 1; fi
-          
-          FIRST_CHAR=$(printf "%.1s" "$SECRET")
-          if [ "$FIRST_CHAR" = "{" ]; then
-            echo "📄 JSON plano detectado"
-            printf '%s' "$SECRET" > android/app/google-services.json
-          else
-            echo "📦 Base64 detectado. Decodificando con Python..."
-            echo "$SECRET" | python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read().strip()))" > android/app/google-services.json
-          fi
-          
-          if python3 -c "import json; json.load(open('android/app/google-services.json'))" 2>/dev/null; then
-            echo "✅ JSON válido"
-          else
-            echo "❌ ERROR: JSON inválido" && head -c 200 android/app/google-services.json && exit 1
-          fi
-          
-      - name: Process KEY_PROPERTIES
-        run: |
-          echo "🔐 Procesando key.properties..."
-          SECRET="${{ secrets.KEY_PROPERTIES }}"
-          if [ -n "$SECRET" ]; then
-            FIRST_CHAR=$(printf "%.1s" "$SECRET")
-            if [ "$FIRST_CHAR" = "{" ]; then
-              printf '%s' "$SECRET" > android/key.properties
-            else
-              echo "$SECRET" | python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read().strip()))" > android/key.properties
-            fi
-            echo "✅ key.properties creado"
-            cat android/key.properties
-          else
-            echo "⚠️ No configurado"
-          fi
-          
-      - name: Process KEYSTORE
-        run: |
-          echo "🔐 Procesando keystore..."
-          SECRET="${{ secrets.KEYSTORE }}"
-          if [ -n "$SECRET" ]; then
-            FIRST_CHAR=$(printf "%.1s" "$SECRET")
-            if [ "$FIRST_CHAR" = "{" ]; then
-              printf '%s' "$SECRET" > android/app/elena-release.jks
-            else
-              echo "$SECRET" | python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read().strip()))" > android/app/elena-release.jks
-            fi
-            if [ -f android/app/elena-release.jks ] && [ -s android/app/elena-release.jks ]; then
-              echo "✅ Keystore creado: $(ls -lh android/app/elena-release.jks)"
-            else
-              echo "❌ ERROR: Keystore vacío" && exit 1
-            fi
-          else
-            echo "️ No configurado"
-          fi
-          
+          python3 << 'EOF'
+import os, json, base64, sys
+
+def process_secret(secret_name, output_path, is_json_check=True):
+    secret = os.environ.get(secret_name, "")
+    if not secret:
+        print(f"⚠️ {secret_name} no está configurado")
+        return
+
+    secret = secret.strip()
+    print(f"🔐 Procesando {secret_name} (Longitud: {len(secret)})...")
+
+    # Intento 1: Decodificar Base64
+    try:
+        # Agregamos padding '=' si falta para evitar error de Python
+        padding = 4 - len(secret) % 4
+        if padding != 4:
+            secret += "=" * padding
+            
+        decoded_bytes = base64.b64decode(secret)
+        with open(output_path, "wb") as f:
+            f.write(decoded_bytes)
+        print(f"✅ {secret_name} decodificado exitosamente desde Base64")
+    except Exception as e:
+        print(f"️ Falló Base64 ({e}), intentando guardar como texto plano...")
+        # Intento 2: Guardar como texto plano
+        with open(output_path, "w") as f:
+            f.write(secret)
+        print(f"✅ {secret_name} guardado como texto plano")
+
+    # Validación final
+    if is_json_check:
+        try:
+            with open(output_path, "r") as f:
+                json.load(f)
+            print(f"✅ {os.path.basename(output_path)} es JSON válido")
+        except json.JSONDecodeError:
+            print(f"❌ ERROR: {os.path.basename(output_path)} NO es JSON válido")
+            print("Contenido parcial:", open(output_path).read(200))
+            sys.exit(1)
+    else:
+        print(f"✅ {os.path.basename(output_path)} creado correctamente")
+
+# Ejecutar para cada secret
+process_secret("GOOGLE_SERVICES", "android/app/google-services.json")
+process_secret("KEY_PROPERTIES", "android/key.properties", is_json_check=False)
+process_secret("KEYSTORE", "android/app/elena-release.jks", is_json_check=False)
+
+# Verificar tamaños
+for f in ["android/app/google-services.json", "android/key.properties", "android/app/elena-release.jks"]:
+    if os.path.exists(f):
+        print(f"📁 {f}: {os.path.getsize(f)} bytes")
+EOF
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
+          KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
         
