@@ -47,59 +47,74 @@ jobs:
           mkdir -p android/app
           mkdir -p android
           
-      - name: Decode GOOGLE_SERVICES
+      - name: Process GOOGLE_SERVICES
         run: |
-          echo "🔐 Decodificando google-services.json..."
+          echo " Procesando google-services.json..."
           SECRET="${{ secrets.GOOGLE_SERVICES }}"
+          
           if [ -z "$SECRET" ]; then
             echo "❌ ERROR: GOOGLE_SERVICES está vacío"
             exit 1
           fi
-          # Intentar decodificar
-          if echo "$SECRET" | base64 -d > android/app/google-services.json 2>/dev/null; then
-            echo "✅ Decodificación exitosa"
-            # Validar JSON
-            if python3 -c "import json; json.load(open('android/app/google-services.json'))" 2>/dev/null; then
-              echo "✅ JSON válido"
-            else
-              echo "❌ ERROR: El archivo no es JSON válido"
-              echo "Primeros 200 caracteres:"
-              head -c 200 android/app/google-services.json
-              exit 1
-            fi
+          
+          # Detectar si es base64 o texto plano
+          # Si empieza con "ew0K" o "eyJ" es base64, si empieza con "{" es JSON
+          FIRST_CHARS=$(echo "$SECRET" | head -c 4)
+          
+          if echo "$FIRST_CHARS" | grep -q "ew0K\|eyJ\|eyJ"; then
+            echo "📦 Detectado: formato base64"
+            echo "$SECRET" | base64 -d > android/app/google-services.json
           else
-            echo "❌ ERROR: base64 inválido"
-            echo "Primeros 50 caracteres del secret:"
-            echo "$SECRET" | head -c 50
-            echo ""
+            echo "📄 Detectado: formato JSON (texto plano)"
+            echo "$SECRET" > android/app/google-services.json
+          fi
+          
+          # Validar JSON
+          if python3 -c "import json; json.load(open('android/app/google-services.json'))" 2>/dev/null; then
+            echo "✅ google-services.json válido"
+          else
+            echo "❌ ERROR: JSON inválido"
+            head -c 200 android/app/google-services.json
             exit 1
           fi
           
-      - name: Decode KEY_PROPERTIES
+      - name: Process KEY_PROPERTIES
         run: |
-          echo "🔐 Decodificando key.properties..."
+          echo "🔐 Procesando key.properties..."
           SECRET="${{ secrets.KEY_PROPERTIES }}"
+          
           if [ -n "$SECRET" ]; then
-            echo "$SECRET" | base64 -d > android/key.properties 2>/dev/null || echo "$SECRET" > android/key.properties
+            FIRST_CHARS=$(echo "$SECRET" | head -c 4)
+            if echo "$FIRST_CHARS" | grep -q "ew0K\|eyJ"; then
+              echo "$SECRET" | base64 -d > android/key.properties
+            else
+              echo "$SECRET" > android/key.properties
+            fi
             echo "✅ key.properties creado"
             cat android/key.properties
           else
             echo "⚠️ KEY_PROPERTIES no configurado"
           fi
           
-      - name: Decode KEYSTORE
+      - name: Process KEYSTORE
         run: |
-          echo "🔐 Decodificando keystore..."
+          echo "🔐 Procesando keystore..."
           SECRET="${{ secrets.KEYSTORE }}"
+          
           if [ -n "$SECRET" ]; then
-            echo "$SECRET" | base64 -d > android/app/elena-release.jks 2>/dev/null || printf '%s' "$SECRET" | base64 -d > android/app/elena-release.jks 2>/dev/null
+            FIRST_CHARS=$(echo "$SECRET" | head -c 4)
+            if echo "$FIRST_CHARS" | grep -q "ew0K\|eyJ"; then
+              echo "$SECRET" | base64 -d > android/app/elena-release.jks
+            else
+              echo "$SECRET" > android/app/elena-release.jks
+            fi
             if [ -f android/app/elena-release.jks ] && [ -s android/app/elena-release.jks ]; then
               echo "✅ Keystore creado: $(ls -lh android/app/elena-release.jks)"
             else
-              echo "⚠️ Keystore puede estar vacío o inválido"
+              echo "⚠️ Keystore puede estar vacío"
             fi
           else
-            echo "⚠️ KEYSTORE no configurado"
+            echo "️ KEYSTORE no configurado"
           fi
           
       - name: Make gradlew executable
