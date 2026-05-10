@@ -23,17 +23,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
           
-      - name: Clean install dependencies
+      - name: Install & Build Web
         run: |
           rm -rf node_modules package-lock.json
           npm install --legacy-peer-deps
+          npm install react-is --save --legacy-peer-deps || true
+          npm run build
           
-      - name: Install missing peer dependencies
-        run: npm install react-is --save --legacy-peer-deps || true
-        
-      - name: Build web app
-        run: npm run build
-        
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -42,64 +38,39 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
         
-      - name: Create directories
-        run: mkdir -p android/app
-        
-      - name: Process GOOGLE_SERVICES only
+      - name: Prepare Signing Files
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
+          KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
+          KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
+          mkdir -p android/app
+          
+          # Decodificar google-services.json
           if [ -n "$GOOGLE_SERVICES" ]; then
-            echo "$GOOGLE_SERVICES" | base64 -d > android/app/google-services.json 2>/dev/null || echo "$GOOGLE_SERVICES" > android/app/google-services.json
-            echo "✅ google-services.json creado"
+            printf '%s' "$GOOGLE_SERVICES" | base64 -d | tr -d '\r' > android/app/google-services.json
+            echo "✅ google-services.json listo"
           fi
           
-      - name: Generate NEW Keystore (Fresh)
-        run: |
-          echo "🔐 Generando keystore nuevo..."
-          keytool -genkey -v \
-            -keystore android/app/elena-release.jks \
-            -alias elena-key \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass elena123 \
-            -keypass elena123 \
-            -dname "CN=Elena Method AI, OU=Mobile, O=ElenaAI, L=City, S=State, C=US"
-          echo "✅ Keystore generado exitosamente"
-          ls -lh android/app/elena-release.jks
+          # Decodificar key.properties (quita saltos de línea de Windows)
+          if [ -n "$KEY_PROPERTIES" ]; then
+            printf '%s' "$KEY_PROPERTIES" | base64 -d | tr -d '\r' > android/key.properties
+            echo "✅ key.properties listo:"
+            cat android/key.properties
+          fi
           
-      - name: Create key.properties
-        run: |
-          cat > android/key.properties << 'EOF'
-storePassword=elena123
-keyPassword=elena123
-keyAlias=elena-key
-storeFile=elena-release.jks
-EOF
-          echo "✅ key.properties creado:"
-          cat android/key.properties
+          # Decodificar keystore (guarda en ambas rutas por compatibilidad)
+          if [ -n "$KEYSTORE" ]; then
+            printf '%s' "$KEYSTORE" | base64 -d > android/app/elena-release.jks
+            cp android/app/elena-release.jks android/elena-release.jks
+            echo "✅ Keystore listo en android/app/ y android/"
+          fi
           
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
-        
-      - name: Build SIGNED AAB
+      - name: Build Signed AAB
         run: |
+          chmod +x android/gradlew
           cd android
-          echo "Compilando AAB firmado..."
           ./gradlew clean bundleRelease --no-daemon
-          
-      - name: Verify AAB Signature
-        run: |
-          AAB="android/app/build/outputs/bundle/release/app-release.aab"
-          if [ -f "$AAB" ]; then
-            echo "✅ AAB generado: $(ls -lh $AAB)"
-            echo "Verificando firma..."
-            jarsigner -verify -verbose -certs "$AAB" 2>&1 | grep "signed by" || echo "⚠️ Verificación manual necesaria"
-          else
-            echo "❌ ERROR: No se generó el AAB"
-            exit 1
-          fi
           
       - name: Upload AAB
         uses: actions/upload-artifact@v4
