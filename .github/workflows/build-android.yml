@@ -47,82 +47,73 @@ jobs:
           mkdir -p android/app
           mkdir -p android
           
-      - name: Process GOOGLE_SERVICES
+      - name: Process GOOGLE_SERVICES (Base64 or Plain Text)
         run: |
-          echo "🔐 Procesando google-services.json..."
+          echo " Procesando google-services.json..."
           SECRET="${{ secrets.GOOGLE_SERVICES }}"
           
           if [ -z "$SECRET" ]; then
-            echo "❌ ERROR: GOOGLE_SERVICES está vacío"
+            echo " ERROR: GOOGLE_SERVICES está vacío"
             exit 1
           fi
           
-          # LIMPIEZA CRÍTICA: Elimina saltos de línea y espacios que rompen base64
-          CLEAN_SECRET=$(echo "$SECRET" | tr -d '\n\r ')
-          
-          # Detectar si es base64 o texto plano
-          # Si empieza con "ew0K" o "eyJ" es base64, si empieza con "{" es JSON
-          FIRST_CHARS=$(echo "$CLEAN_SECRET" | head -c 4)
-          
-          if echo "$FIRST_CHARS" | grep -qE "ew0K|eyJ"; then
-            echo " Detectado: formato base64"
-            # Decodificar usando el string limpio
-            echo "$CLEAN_SECRET" | base64 -d > android/app/google-services.json
+          # Intentar decodificar como base64
+          if printf '%s' "$SECRET" | base64 -d > android/app/google-services.json 2>/dev/null; then
+            echo "✅ Decodificado como Base64 exitosamente"
           else
-            echo "📄 Detectado: formato JSON (texto plano)"
-            echo "$CLEAN_SECRET" > android/app/google-services.json
+            echo "⚠️ Falló Base64, guardando como Texto Plano..."
+            printf '%s' "$SECRET" > android/app/google-services.json
+            echo "✅ Guardado como Texto Plano"
           fi
           
           # Validar JSON
           if python3 -c "import json; json.load(open('android/app/google-services.json'))" 2>/dev/null; then
-            echo "✅ google-services.json válido"
+            echo "✅ google-services.json es JSON válido"
           else
-            echo " ERROR: JSON inválido o archivo corrupto"
+            echo "❌ ERROR: El archivo resultante NO es JSON válido"
             echo "Contenido (primeros 100 chars):"
             head -c 100 android/app/google-services.json
-            echo ""
             exit 1
           fi
           
-      - name: Process KEY_PROPERTIES
+      - name: Process KEY_PROPERTIES (Base64 or Plain Text)
         run: |
           echo "🔐 Procesando key.properties..."
           SECRET="${{ secrets.KEY_PROPERTIES }}"
           
           if [ -n "$SECRET" ]; then
-            CLEAN_SECRET=$(echo "$SECRET" | tr -d '\n\r ')
-            FIRST_CHARS=$(echo "$CLEAN_SECRET" | head -c 4)
-            if echo "$FIRST_CHARS" | grep -qE "ew0K|eyJ"; then
-              echo "$CLEAN_SECRET" | base64 -d > android/key.properties
+            if printf '%s' "$SECRET" | base64 -d > android/key.properties 2>/dev/null; then
+              echo "✅ Decodificado como Base64"
             else
-              echo "$CLEAN_SECRET" > android/key.properties
+              printf '%s' "$SECRET" > android/key.properties
+              echo "✅ Guardado como Texto Plano"
             fi
-            echo "✅ key.properties creado"
+            echo "Contenido:"
             cat android/key.properties
           else
             echo "⚠️ KEY_PROPERTIES no configurado"
           fi
           
-      - name: Process KEYSTORE
+      - name: Process KEYSTORE (Base64 or Plain Text)
         run: |
           echo "🔐 Procesando keystore..."
           SECRET="${{ secrets.KEYSTORE }}"
           
           if [ -n "$SECRET" ]; then
-            CLEAN_SECRET=$(echo "$SECRET" | tr -d '\n\r ')
-            FIRST_CHARS=$(echo "$CLEAN_SECRET" | head -c 4)
-            if echo "$FIRST_CHARS" | grep -qE "ew0K|eyJ"; then
-              echo "$CLEAN_SECRET" | base64 -d > android/app/elena-release.jks
+            if printf '%s' "$SECRET" | base64 -d > android/app/elena-release.jks 2>/dev/null; then
+              echo "✅ Keystore decodificado como Base64"
             else
-              echo "$CLEAN_SECRET" > android/app/elena-release.jks
+              printf '%s' "$SECRET" > android/app/elena-release.jks
+              echo "⚠️ Keystore guardado como Texto Plano (podría fallar firma)"
             fi
+            
             if [ -f android/app/elena-release.jks ] && [ -s android/app/elena-release.jks ]; then
-              echo "✅ Keystore creado: $(ls -lh android/app/elena-release.jks)"
+              echo "✅ Archivo keystore existe y no está vacío: $(ls -lh android/app/elena-release.jks)"
             else
-              echo "⚠️ Keystore puede estar vacío"
+              echo "❌ ERROR: Keystore vacío o no creado"
             fi
           else
-            echo "️ KEYSTORE no configurado"
+            echo "⚠️ KEYSTORE no configurado"
           fi
           
       - name: Make gradlew executable
