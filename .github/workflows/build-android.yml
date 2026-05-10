@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Desactiva el optimizador nativo de Tailwind para evitar errores de bindings
+      OXIDE_DISABLE: "1"
     steps:
       - uses: actions/checkout@v4
       
@@ -25,12 +28,13 @@ jobs:
       - name: Clean install dependencies
         run: |
           rm -rf node_modules package-lock.json
-          npm install --force
-          npm rebuild
+          npm install --legacy-peer-deps
           
       - name: Build web app
         run: npm run build
-        
+        env:
+          OXIDE_DISABLE: "1"
+          
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -38,7 +42,9 @@ jobs:
           
       - name: Sync Capacitor
         run: npx cap sync android
-        
+        env:
+          OXIDE_DISABLE: "1"
+          
       - name: Copy config files
         run: |
           mkdir -p android/app
