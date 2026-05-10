@@ -2,6 +2,8 @@ name: Build Android AAB
 
 on:
   workflow_dispatch:
+  push:               # Y también se ejecuta con git push
+    branches: [main]
 
 jobs:
   build:
