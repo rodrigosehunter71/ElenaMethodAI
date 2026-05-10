@@ -44,20 +44,32 @@ jobs:
         
       - name: Copy config files
         run: |
-          mkdir -p android/app
+          mkdir -p android/app android
           
-          # GOOGLE_SERVICES
-          echo -n '${{ secrets.GOOGLE_SERVICES }}' | base64 -d > android/app/google-services.json 2>/dev/null || echo '${{ secrets.GOOGLE_SERVICES }}' > android/app/google-services.json
-          
-          # KEY_PROPERTIES
-          echo -n '${{ secrets.KEY_PROPERTIES }}' | base64 -d > android/key.properties 2>/dev/null || echo '${{ secrets.KEY_PROPERTIES }}' > android/key.properties
-          
-          # KEYSTORE (con manejo robusto)
-          if echo -n '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks 2>/dev/null; then
-            echo "✅ Keystore decodificado correctamente"
-          else
-            printf '%s' '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks || echo "⚠️ Warning: Keystore may not be valid"
+          # GOOGLE_SERVICES - decodificación robusta
+          if [ -n "${{ secrets.GOOGLE_SERVICES }}" ]; then
+            echo -n '${{ secrets.GOOGLE_SERVICES }}' | base64 -d > android/app/google-services.json 2>/dev/null
+            # Validar que sea JSON válido
+            if ! python3 -c "import json; json.load(open('android/app/google-services.json'))" 2>/dev/null; then
+              echo "⚠️ google-services.json no es JSON válido, intentando fallback..."
+              echo '${{ secrets.GOOGLE_SERVICES }}' > android/app/google-services.json
+            fi
           fi
+          
+          # KEY_PROPERTIES - decodificación robusta
+          if [ -n "${{ secrets.KEY_PROPERTIES }}" ]; then
+            echo -n '${{ secrets.KEY_PROPERTIES }}' | base64 -d > android/key.properties 2>/dev/null || echo '${{ secrets.KEY_PROPERTIES }}' > android/key.properties
+          fi
+          
+          # KEYSTORE - decodificación robusta
+          if [ -n "${{ secrets.KEYSTORE }}" ]; then
+            echo -n '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks 2>/dev/null || printf '%s' '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks 2>/dev/null || echo "⚠️ Warning: Keystore may not be valid"
+          fi
+          
+          # Debug: mostrar info de los archivos (sin contenido sensible)
+          echo "📁 google-services.json size: $(wc -c < android/app/google-services.json 2>/dev/null || echo 'N/A') bytes"
+          echo "📁 key.properties exists: $(test -f android/key.properties && echo 'yes' || echo 'no')"
+          echo "📁 elena-release.jks size: $(wc -c < android/app/elena-release.jks 2>/dev/null || echo 'N/A') bytes"
           
       - name: Make gradlew executable
         run: chmod +x android/gradlew
