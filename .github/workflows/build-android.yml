@@ -38,34 +38,58 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
         
-      - name: Prepare Signing Files
+      - name: Prepare Signing Files (Using Python for robust decoding)
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
           KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
           KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
           mkdir -p android/app
-          
-          # GOOGLE_SERVICES: Texto plano
-          if [ -n "$GOOGLE_SERVICES" ]; then
-            printf '%s' "$GOOGLE_SERVICES" > android/app/google-services.json
-            echo "✅ google-services.json listo"
-          fi
-          
-          # KEY_PROPERTIES: Texto plano
-          if [ -n "$KEY_PROPERTIES" ]; then
-            printf '%s' "$KEY_PROPERTIES" | sed 's/\r$//' > android/key.properties
-            echo "✅ key.properties listo"
-          fi
-          
-          # KEYSTORE: Base64 con limpieza estricta de caracteres ocultos
-          if [ -n "$KEYSTORE" ]; then
-            # Elimina TODOS los saltos, espacios y tabs invisibles
-            CLEAN_KEYSTORE=$(printf '%s' "$KEYSTORE" | tr -d '[:space:]')
-            printf '%s' "$CLEAN_KEYSTORE" | base64 -d > android/app/elena-release.jks
-            cp android/app/elena-release.jks android/elena-release.jks
-            echo "✅ Keystore decodificado y copiado"
-          fi
+          python3 << 'PYEOF'
+          import os
+          import base64
+          import shutil
+
+          # 1. Procesar Google Services (Texto Plano)
+          gs = os.environ.get("GOOGLE_SERVICES", "")
+          if gs:
+              with open("android/app/google-services.json", "w") as f:
+                  f.write(gs)
+              print("✅ google-services.json creado")
+
+          # 2. Procesar Key Properties (Texto Plano)
+          kp = os.environ.get("KEY_PROPERTIES", "")
+          if kp:
+              # Limpiar saltos de línea de Windows si los hubiera
+              kp = kp.replace('\r', '')
+              with open("android/key.properties", "w") as f:
+                  f.write(kp)
+              print("✅ key.properties creado")
+
+          # 3. Procesar KEYSTORE (Base64 Robusto)
+          ks_b64 = os.environ.get("KEYSTORE", "")
+          if ks_b64:
+              # Eliminar TODOS los espacios y saltos de línea invisibles
+              ks_clean = "".join(ks_b64.split())
+              
+              try:
+                  # Decodificar Base64
+                  ks_bytes = base64.b64decode(ks_clean)
+                  
+                  # Guardar en carpeta app
+                  with open("android/app/elena-release.jks", "wb") as f:
+                      f.write(ks_bytes)
+                  
+                  # Copiar a carpeta raíz (por compatibilidad)
+                  shutil.copy("android/app/elena-release.jks", "android/elena-release.jks")
+                  
+                  print(f"✅ Keystore decodificado exitosamente ({len(ks_bytes)} bytes)")
+              except Exception as e:
+                  print(f"❌ Error decodificando Keystore: {e}")
+                  exit(1)
+          else:
+              print("⚠️ KEYSTORE no encontrado en secrets")
+          PYEOF
           
       - name: Build Signed AAB
         run: |
