@@ -23,10 +23,15 @@ jobs:
       - name: Install dependencies
         run: npm install
         
-      - name: Setup Android SDK
+      -      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools;platforms;android-34 build-tools;34.0.0'
+          packages: |
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
+            cmdline-tools;latest
+            
           
       - name: Sync Capacitor
         run: npx cap sync android
