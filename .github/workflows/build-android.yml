@@ -17,10 +17,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
           
-      - name: Setup Node 18
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
           
       - name: Clean install dependencies
@@ -28,8 +28,8 @@ jobs:
           rm -rf node_modules package-lock.json
           npm install --legacy-peer-deps
           
-      - name: Install Linux native bindings for Tailwind
-        run: npm install @tailwindcss/oxide-linux-x64-gnu --no-save --force || true
+      - name: Fix crypto compatibility issue
+        run: npm install serialize-javascript@latest @rollup/plugin-terser@latest --save-dev --legacy-peer-deps || true
         
       - name: Build web app
         run: npm run build
