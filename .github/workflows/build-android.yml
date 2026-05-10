@@ -2,7 +2,7 @@ name: Build Android AAB
 
 on:
   workflow_dispatch:
-  push:               # Y también se ejecuta con git push
+  push:
     branches: [main]
 
 jobs:
@@ -17,36 +17,80 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
           
-      - name: Setup Node 18
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
+          cache: 'npm'
           
-      - name: Install dependencies
-        run: npm install
+      - name: Clean install dependencies
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps
+          
+      - name: Install missing peer dependencies
+        run: npm install react-is --save --legacy-peer-deps || true
         
-      -      - name: Setup Android SDK
+      - name: Build web app
+        run: npm run build
+        
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: |
-            platform-tools
-            platforms;android-34
-            build-tools;34.0.0
-            cmdline-tools;latest
-            
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0 cmdline-tools;latest'
           
       - name: Sync Capacitor
         run: npx cap sync android
         
-      - name: Copy config files
+      - name: Create directories
         run: |
           mkdir -p android/app
-          echo '${{ secrets.GOOGLE_SERVICES }}' > android/app/google-services.json
-          echo '${{ secrets.KEY_PROPERTIES }}' > android/key.properties
-          echo '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks
+          mkdir -p android
           
+      - name: Process Secrets
+        env:
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
+          KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
+          KEYSTORE: ${{ secrets.KEYSTORE }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, base64
+          
+          def process(name, path, check_json=False):
+              val = os.getenv(name, "")
+              if not val:
+                  print(f"⚠️ {name} not set")
+                  return
+              val = val.strip()
+              try:
+                  # Fix Base64 padding if missing
+                  pad = 4 - len(val) % 4
+                  if pad != 4: val += "=" * pad
+                  with open(path, "wb") as f:
+                      f.write(base64.b64decode(val))
+                  print(f"✅ {name} decoded from Base64")
+              except Exception as e:
+                  print(f"⚠️ Base64 failed ({e}), saving as plain text")
+                  with open(path, "w") as f:
+                      f.write(val)
+              
+              if check_json:
+                  with open(path) as f:
+                      json.load(f)
+                  print(f"✅ {path} is valid JSON")
+              else:
+                  print(f"✅ {path} created")
+          
+          process("GOOGLE_SERVICES", "android/app/google-services.json", True)
+          process("KEY_PROPERTIES", "android/key.properties", False)
+          process("KEYSTORE", "android/app/elena-release.jks", False)
+          PYEOF
+          
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+        
       - name: Build AAB
-        run: cd android && ./gradlew bundleRelease
+        run: cd android && ./gradlew bundleRelease --no-daemon
         
       - name: Upload AAB
         uses: actions/upload-artifact@v4
