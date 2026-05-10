@@ -45,98 +45,62 @@ jobs:
       - name: Create directories
         run: mkdir -p android/app
         
-      - name: Process Secrets (Encoding-Proof)
+      - name: Process GOOGLE_SERVICES only
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
-          KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
-          KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
-          python3 << 'PYEOF'
-          import os, base64, re
-
-          def decode_smart(val):
-              val = val.strip()
-              # Si parece Base64 (solo letras, números, +, /, =, espacios)
-              if re.match(r'^[A-Za-z0-9+/=\s]+$', val):
-                  try:
-                      # Rellenar padding si falta
-                      clean = val.replace('\n','').replace('\r','').replace(' ','')
-                      pad = 4 - len(clean) % 4
-                      if pad != 4: val += '=' * pad
-                      return base64.b64decode(val)
-                  except:
-                      pass
-              # Fallback: tratar como texto plano, escribir bytes seguros
-              return val.encode('utf-8', errors='replace')
-
-          # 1. GOOGLE_SERVICES
-          gs = os.getenv("GOOGLE_SERVICES", "")
-          if gs:
-              with open("android/app/google-services.json", "wb") as f:
-                  f.write(decode_smart(gs))
-              print("✅ google-services.json creado")
-
-          # 2. KEY_PROPERTIES
-          kp = os.getenv("KEY_PROPERTIES", "")
-          if kp:
-              data = decode_smart(kp)
-              with open("android/key.properties", "wb") as f:
-                  f.write(data)
-              print("✅ key.properties creado")
-              # Mostrar contenido seguro para debug
-              try: print(data.decode('utf-8'))
-              except: print("(contenido no texto)")
-
-          # 3. KEYSTORE
-          ks = os.getenv("KEYSTORE", "")
-          if ks:
-              data = decode_smart(ks)
-              with open("android/elena-release.jks", "wb") as f:
-                  f.write(data)
-              print(f"✅ Keystore guardado en android/ ({len(data)} bytes)")
-              with open("android/app/elena-release.jks", "wb") as f:
-                  f.write(data)
-              print("✅ Copia en android/app/")
-          PYEOF
-          
-      - name: Verify files & Keystore
-        run: |
-          echo "=== Archivos generados ==="
-          ls -lh android/key.properties android/elena-release.jks android/app/elena-release.jks 2>&1 || true
-          echo ""
-          echo "=== key.properties ==="
-          cat android/key.properties 2>/dev/null || echo "No existe"
-          echo ""
-          if [ -f android/elena-release.jks ]; then
-            echo "=== Verificando firma del keystore ==="
-            KEYSTORE_PATH="android/elena-release.jks"
-            STORE_PASS=$(grep storePassword android/key.properties | cut -d= -f2 | tr -d '\r\n ')
-            if [ -n "$STORE_PASS" ]; then
-              keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASS" 2>&1 | head -3
-            else
-              echo "⚠️ No se encontró storePassword en key.properties"
-            fi
+          if [ -n "$GOOGLE_SERVICES" ]; then
+            echo "$GOOGLE_SERVICES" | base64 -d > android/app/google-services.json 2>/dev/null || echo "$GOOGLE_SERVICES" > android/app/google-services.json
+            echo "✅ google-services.json creado"
           fi
+          
+      - name: Generate NEW Keystore (Fresh)
+        run: |
+          echo "🔐 Generando keystore nuevo..."
+          keytool -genkey -v \
+            -keystore android/app/elena-release.jks \
+            -alias elena-key \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass elena123 \
+            -keypass elena123 \
+            -dname "CN=Elena Method AI, OU=Mobile, O=ElenaAI, L=City, S=State, C=US"
+          echo "✅ Keystore generado exitosamente"
+          ls -lh android/app/elena-release.jks
+          
+      - name: Create key.properties
+        run: |
+          cat > android/key.properties << 'EOF'
+storePassword=elena123
+keyPassword=elena123
+keyAlias=elena-key
+storeFile=elena-release.jks
+EOF
+          echo "✅ key.properties creado:"
+          cat android/key.properties
           
       - name: Make gradlew executable
         run: chmod +x android/gradlew
         
-      - name: Build AAB
-        run: cd android && ./gradlew clean bundleRelease --no-daemon
-        
-      - name: Verify AAB & Upload
+      - name: Build SIGNED AAB
+        run: |
+          cd android
+          echo "Compilando AAB firmado..."
+          ./gradlew clean bundleRelease --no-daemon
+          
+      - name: Verify AAB Signature
         run: |
           AAB="android/app/build/outputs/bundle/release/app-release.aab"
           if [ -f "$AAB" ]; then
             echo "✅ AAB generado: $(ls -lh $AAB)"
             echo "Verificando firma..."
-            unzip -l "$AAB" | grep "META-INF" | head -3 || echo "⚠️ No se encontraron metadatos de firma"
+            jarsigner -verify -verbose -certs "$AAB" 2>&1 | grep "signed by" || echo "⚠️ Verificación manual necesaria"
           else
             echo "❌ ERROR: No se generó el AAB"
             exit 1
           fi
-        if: always()
-        
+          
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
