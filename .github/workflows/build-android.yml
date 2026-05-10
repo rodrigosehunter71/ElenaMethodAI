@@ -45,9 +45,20 @@ jobs:
       - name: Copy config files
         run: |
           mkdir -p android/app
-          echo '${{ secrets.GOOGLE_SERVICES }}' > android/app/google-services.json
-          echo '${{ secrets.KEY_PROPERTIES }}' > android/key.properties
-          echo '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks
+          
+          # GOOGLE_SERVICES
+          echo -n '${{ secrets.GOOGLE_SERVICES }}' | base64 -d > android/app/google-services.json 2>/dev/null || echo '${{ secrets.GOOGLE_SERVICES }}' > android/app/google-services.json
+          
+          # KEY_PROPERTIES
+          echo -n '${{ secrets.KEY_PROPERTIES }}' | base64 -d > android/key.properties 2>/dev/null || echo '${{ secrets.KEY_PROPERTIES }}' > android/key.properties
+          
+          # KEYSTORE (con manejo robusto)
+          if echo -n '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks 2>/dev/null; then
+            echo "✅ Keystore decodificado correctamente"
+          else
+            # Fallback: intentar sin pipe
+            printf '%s' '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks || echo "⚠️ Warning: Keystore may not be valid"
+          fi
           
       - name: Build AAB
         run: cd android && ./gradlew bundleRelease
