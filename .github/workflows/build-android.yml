@@ -38,7 +38,7 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
         
-      - name: Prepare Signing Files (Using Python for robust decoding)
+      - name: Prepare Signing Files
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
           KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
@@ -46,49 +46,78 @@ jobs:
         run: |
           mkdir -p android/app
           python3 << 'PYEOF'
-          import os
-          import base64
-          import shutil
+          import os, json, base64, shutil, re
 
-          # 1. Procesar Google Services (Texto Plano)
+          def clean_value(val):
+              """Limpia saltos de línea y espacios invisibles"""
+              return val.replace('\r', '').replace('\n', ' ').strip()
+
+          def try_decode_base64(val):
+              """Intenta decodificar Base64, si falla devuelve el valor original"""
+              try:
+                  clean = "".join(val.split())  # Elimina TODOS los espacios
+                  return base64.b64decode(clean)
+              except:
+                  return None
+
+          # === 1. GOOGLE_SERVICES ===
           gs = os.environ.get("GOOGLE_SERVICES", "")
           if gs:
-              with open("android/app/google-services.json", "w") as f:
-                  f.write(gs)
-              print("✅ google-services.json creado")
+              gs_clean = clean_value(gs)
+              
+              # Intentar decodificar si parece Base64
+              if re.match(r'^[A-Za-z0-9+/=]+$', gs_clean.replace(' ', '')):
+                  decoded = try_decode_base64(gs_clean)
+                  if decoded:
+                      try:
+                          # Validar que sea JSON
+                          json.loads(decoded.decode('utf-8'))
+                          with open("android/app/google-services.json", "wb") as f:
+                              f.write(decoded)
+                          print("✅ google-services.json decodificado desde Base64")
+                      except:
+                          # Si no es JSON válido, guardar como texto plano
+                          with open("android/app/google-services.json", "w") as f:
+                              f.write(gs_clean)
+                          print("✅ google-services.json guardado como texto plano")
+                  else:
+                      with open("android/app/google-services.json", "w") as f:
+                          f.write(gs_clean)
+              else:
+                  # No parece Base64, guardar como texto plano
+                  with open("android/app/google-services.json", "w") as f:
+                      f.write(gs_clean)
+              
+              # Validación final
+              try:
+                  with open("android/app/google-services.json", "r") as f:
+                      json.load(f)
+                  print("✅ google-services.json es JSON válido")
+              except json.JSONDecodeError as e:
+                  print(f"❌ ERROR: JSON inválido: {e}")
+                  print("Contenido parcial:", open("android/app/google-services.json").read(200))
+                  exit(1)
 
-          # 2. Procesar Key Properties (Texto Plano)
+          # === 2. KEY_PROPERTIES ===
           kp = os.environ.get("KEY_PROPERTIES", "")
           if kp:
-              # Limpiar saltos de línea de Windows si los hubiera
-              kp = kp.replace('\r', '')
               with open("android/key.properties", "w") as f:
-                  f.write(kp)
+                  f.write(clean_value(kp))
               print("✅ key.properties creado")
 
-          # 3. Procesar KEYSTORE (Base64 Robusto)
-          ks_b64 = os.environ.get("KEYSTORE", "")
-          if ks_b64:
-              # Eliminar TODOS los espacios y saltos de línea invisibles
-              ks_clean = "".join(ks_b64.split())
-              
+          # === 3. KEYSTORE (Base64 obligatorio) ===
+          ks = os.environ.get("KEYSTORE", "")
+          if ks:
+              ks_clean = "".join(ks.split())  # Eliminar TODOS los espacios
               try:
-                  # Decodificar Base64
                   ks_bytes = base64.b64decode(ks_clean)
-                  
-                  # Guardar en carpeta app
                   with open("android/app/elena-release.jks", "wb") as f:
                       f.write(ks_bytes)
-                  
-                  # Copiar a carpeta raíz (por compatibilidad)
                   shutil.copy("android/app/elena-release.jks", "android/elena-release.jks")
-                  
-                  print(f"✅ Keystore decodificado exitosamente ({len(ks_bytes)} bytes)")
+                  print(f"✅ Keystore decodificado ({len(ks_bytes)} bytes)")
               except Exception as e:
-                  print(f"❌ Error decodificando Keystore: {e}")
+                  print(f"❌ Error con Keystore: {e}")
                   exit(1)
-          else:
-              print("⚠️ KEYSTORE no encontrado en secrets")
           PYEOF
           
       - name: Build Signed AAB
