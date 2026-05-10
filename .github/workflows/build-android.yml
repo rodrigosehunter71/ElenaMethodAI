@@ -1,0 +1,48 @@
+name: Build Android AAB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          
+      - name: Setup Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools;platforms;android-34 build-tools;34.0.0'
+          
+      - name: Sync Capacitor
+        run: npx cap sync android
+        
+      - name: Copy config files
+        run: |
+          mkdir -p android/app
+          echo '${{ secrets.GOOGLE_SERVICES }}' > android/app/google-services.json
+          echo '${{ secrets.KEY_PROPERTIES }}' > android/key.properties
+          echo '${{ secrets.KEYSTORE }}' | base64 -d > android/app/elena-release.jks
+          
+      - name: Build AAB
+        run: cd android && ./gradlew bundleRelease
+        
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: android/app/build/outputs/bundle/release/app-release.aab
