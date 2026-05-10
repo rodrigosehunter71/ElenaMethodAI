@@ -42,52 +42,65 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
         
-      - name: Create android directories
+      - name: Create directories
         run: |
           mkdir -p android/app
           mkdir -p android
-          ls -la android/
           
       - name: Decode GOOGLE_SERVICES
         run: |
-          echo "Decoding google-services.json..."
-          if [ -n "${{ secrets.GOOGLE_SERVICES }}" ]; then
-            echo "${{ secrets.GOOGLE_SERVICES }}" | base64 -d > android/app/google-services.json
-            echo "✅ google-services.json creado"
-            head -c 100 android/app/google-services.json
-            echo ""
+          echo "🔐 Decodificando google-services.json..."
+          SECRET="${{ secrets.GOOGLE_SERVICES }}"
+          if [ -z "$SECRET" ]; then
+            echo "❌ ERROR: GOOGLE_SERVICES está vacío"
+            exit 1
+          fi
+          # Intentar decodificar
+          if echo "$SECRET" | base64 -d > android/app/google-services.json 2>/dev/null; then
+            echo "✅ Decodificación exitosa"
+            # Validar JSON
+            if python3 -c "import json; json.load(open('android/app/google-services.json'))" 2>/dev/null; then
+              echo "✅ JSON válido"
+            else
+              echo "❌ ERROR: El archivo no es JSON válido"
+              echo "Primeros 200 caracteres:"
+              head -c 200 android/app/google-services.json
+              exit 1
+            fi
           else
-            echo "⚠️ GOOGLE_SERVICES secret no está configurado"
+            echo "❌ ERROR: base64 inválido"
+            echo "Primeros 50 caracteres del secret:"
+            echo "$SECRET" | head -c 50
+            echo ""
+            exit 1
           fi
           
       - name: Decode KEY_PROPERTIES
         run: |
-          echo "Decoding key.properties..."
-          if [ -n "${{ secrets.KEY_PROPERTIES }}" ]; then
-            echo "${{ secrets.KEY_PROPERTIES }}" | base64 -d > android/key.properties
+          echo "🔐 Decodificando key.properties..."
+          SECRET="${{ secrets.KEY_PROPERTIES }}"
+          if [ -n "$SECRET" ]; then
+            echo "$SECRET" | base64 -d > android/key.properties 2>/dev/null || echo "$SECRET" > android/key.properties
             echo "✅ key.properties creado"
             cat android/key.properties
           else
-            echo "⚠️ KEY_PROPERTIES secret no está configurado"
+            echo "⚠️ KEY_PROPERTIES no configurado"
           fi
           
       - name: Decode KEYSTORE
         run: |
-          echo "Decoding keystore..."
-          if [ -n "${{ secrets.KEYSTORE }}" ]; then
-            echo "${{ secrets.KEYSTORE }}" | base64 -d > android/app/elena-release.jks
-            echo "✅ Keystore creado"
-            ls -lh android/app/elena-release.jks
+          echo "🔐 Decodificando keystore..."
+          SECRET="${{ secrets.KEYSTORE }}"
+          if [ -n "$SECRET" ]; then
+            echo "$SECRET" | base64 -d > android/app/elena-release.jks 2>/dev/null || printf '%s' "$SECRET" | base64 -d > android/app/elena-release.jks 2>/dev/null
+            if [ -f android/app/elena-release.jks ] && [ -s android/app/elena-release.jks ]; then
+              echo "✅ Keystore creado: $(ls -lh android/app/elena-release.jks)"
+            else
+              echo "⚠️ Keystore puede estar vacío o inválido"
+            fi
           else
-            echo "⚠️ KEYSTORE secret no está configurado"
+            echo "⚠️ KEYSTORE no configurado"
           fi
-          
-      - name: Verify config files
-        run: |
-          echo "=== Verificando archivos de configuración ==="
-          ls -lh android/app/google-services.json android/key.properties android/app/elena-release.jks 2>&1 || true
-          echo "=== Validando google-services.json ==="
-          python3 -c "import json; json.load(open('android/app/google-services.json')); print('✅ JSON válido')" 2>&1 || echo "❌ JSON inválido"
           
       - name: Make gradlew executable
         run: chmod +x android/gradlew
