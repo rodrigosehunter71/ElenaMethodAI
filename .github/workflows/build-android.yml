@@ -43,66 +43,93 @@ jobs:
         run: npx cap sync android
         
       - name: Create directories
-        run: |
-          mkdir -p android/app
-          mkdir -p android
-          
-      - name: Process Secrets (Smart Decoder & Fix Paths)
+        run: mkdir -p android/app
+        
+      - name: Process Secrets
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
           KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
           KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
           python3 << 'PYEOF'
-          import os, json, base64, shutil
+          import os, json, base64
           
-          def process(name, path, check_json=False):
-              val = os.getenv(name, "")
-              if not val:
-                  print(f"⚠️ {name} not set")
-                  return
+          def decode_secret(name, val):
               val = val.strip()
               try:
-                  # Fix Base64 padding if missing
+                  # Fix padding
                   pad = 4 - len(val) % 4
                   if pad != 4: val += "=" * pad
-                  with open(path, "wb") as f:
-                      f.write(base64.b64decode(val))
-                  print(f"✅ {name} decoded to {path}")
-              except Exception as e:
-                  print(f"⚠️ Base64 failed ({e}), saving as plain text")
-                  with open(path, "w") as f:
-                      f.write(val)
+                  return base64.b64decode(val)
+              except:
+                  return val.encode()
+          
+          # GOOGLE_SERVICES
+          gs = os.getenv("GOOGLE_SERVICES", "")
+          if gs:
+              with open("android/app/google-services.json", "wb") as f:
+                  f.write(decode_secret("GOOGLE_SERVICES", gs))
+              print("✅ google-services.json creado")
+          
+          # KEY_PROPERTIES - DECÓDIFICALO Y MUESTRALO
+          kp = os.getenv("KEY_PROPERTIES", "")
+          if kp:
+              kp_content = decode_secret("KEY_PROPERTIES", kp).decode() if isinstance(decode_secret("KEY_PROPERTIES", kp), bytes) else kp
+              with open("android/key.properties", "w") as f:
+                  f.write(kp_content)
+              print("✅ key.properties creado:")
+              print(kp_content)
+              print("---")
+          
+          # KEYSTORE
+          ks = os.getenv("KEYSTORE", "")
+          if ks:
+              ks_data = decode_secret("KEYSTORE", ks)
+              # Guardar en android/ (raíz)
+              with open("android/elena-release.jks", "wb") as f:
+                  f.write(ks_data)
+              print(f"✅ Keystore guardado en android/elena-release.jks ({len(ks_data)} bytes)")
               
-              if check_json:
-                  with open(path) as f:
-                      json.load(f)
-                  print(f"✅ {path} is valid JSON")
-              else:
-                  print(f"✅ {path} created")
-          
-          # 1. Google Services
-          process("GOOGLE_SERVICES", "android/app/google-services.json", True)
-          
-          # 2. Key Properties
-          process("KEY_PROPERTIES", "android/key.properties", False)
-          
-          # 3. Keystore: Save to root android/ folder (standard location)
-          process("KEYSTORE", "android/elena-release.jks", False)
-          
-          # FIX: Save a copy in android/app/ just in case key.properties expects it there
-          # This covers both common configurations.
-          if os.path.exists("android/elena-release.jks"):
-              shutil.copy("android/elena-release.jks", "android/app/elena-release.jks")
-              print("✅ Backup keystore saved to android/app/")
+              # También en android/app/ por si acaso
+              with open("android/app/elena-release.jks", "wb") as f:
+                  f.write(ks_data)
+              print("✅ Copia en android/app/elena-release.jks")
           PYEOF
+          
+      - name: Verify files
+        run: |
+          echo "=== Verificando archivos ==="
+          ls -lh android/key.properties android/elena-release.jks android/app/elena-release.jks 2>&1 || true
+          echo ""
+          echo "=== Contenido de key.properties ==="
+          cat android/key.properties 2>/dev/null || echo "No existe"
+          echo ""
+          echo "=== Verificando keystore ==="
+          if [ -f android/elena-release.jks ]; then
+            keytool -list -keystore android/elena-release.jks -storepass $(grep storePassword android/key.properties | cut -d= -f2) 2>&1 | head -5 || echo "No se puede leer"
+          fi
           
       - name: Make gradlew executable
         run: chmod +x android/gradlew
         
-      - name: Build AAB (Signed)
-        run: cd android && ./gradlew bundleRelease --no-daemon
-        
+      - name: Build AAB
+        run: |
+          cd android
+          echo "Iniciando build firmado..."
+          ./gradlew clean bundleRelease --no-daemon --stacktrace
+          
+      - name: Verify AAB signature
+        run: |
+          AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
+          if [ -f "$AAB_PATH" ]; then
+            echo "✅ AAB generado: $(ls -lh $AAB_PATH)"
+            # Verificar si está firmado
+            unzip -l "$AAB_PATH" | grep -i "META-INF" | head -5 || echo "⚠️ No se encuentran archivos de firma"
+          else
+            echo "❌ ERROR: No se generó el AAB"
+            find android/app/build/outputs -name "*.aab" 2>/dev/null || echo "No hay AABs en outputs"
+          fi
+          
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
