@@ -45,91 +45,98 @@ jobs:
       - name: Create directories
         run: mkdir -p android/app
         
-      - name: Process Secrets
+      - name: Process Secrets (Encoding-Proof)
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
           KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
           KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
           python3 << 'PYEOF'
-          import os, json, base64
-          
-          def decode_secret(name, val):
+          import os, base64, re
+
+          def decode_smart(val):
               val = val.strip()
-              try:
-                  # Fix padding
-                  pad = 4 - len(val) % 4
-                  if pad != 4: val += "=" * pad
-                  return base64.b64decode(val)
-              except:
-                  return val.encode()
-          
-          # GOOGLE_SERVICES
+              # Si parece Base64 (solo letras, números, +, /, =, espacios)
+              if re.match(r'^[A-Za-z0-9+/=\s]+$', val):
+                  try:
+                      # Rellenar padding si falta
+                      clean = val.replace('\n','').replace('\r','').replace(' ','')
+                      pad = 4 - len(clean) % 4
+                      if pad != 4: val += '=' * pad
+                      return base64.b64decode(val)
+                  except:
+                      pass
+              # Fallback: tratar como texto plano, escribir bytes seguros
+              return val.encode('utf-8', errors='replace')
+
+          # 1. GOOGLE_SERVICES
           gs = os.getenv("GOOGLE_SERVICES", "")
           if gs:
               with open("android/app/google-services.json", "wb") as f:
-                  f.write(decode_secret("GOOGLE_SERVICES", gs))
+                  f.write(decode_smart(gs))
               print("✅ google-services.json creado")
-          
-          # KEY_PROPERTIES - DECÓDIFICALO Y MUESTRALO
+
+          # 2. KEY_PROPERTIES
           kp = os.getenv("KEY_PROPERTIES", "")
           if kp:
-              kp_content = decode_secret("KEY_PROPERTIES", kp).decode() if isinstance(decode_secret("KEY_PROPERTIES", kp), bytes) else kp
-              with open("android/key.properties", "w") as f:
-                  f.write(kp_content)
-              print("✅ key.properties creado:")
-              print(kp_content)
-              print("---")
-          
-          # KEYSTORE
+              data = decode_smart(kp)
+              with open("android/key.properties", "wb") as f:
+                  f.write(data)
+              print("✅ key.properties creado")
+              # Mostrar contenido seguro para debug
+              try: print(data.decode('utf-8'))
+              except: print("(contenido no texto)")
+
+          # 3. KEYSTORE
           ks = os.getenv("KEYSTORE", "")
           if ks:
-              ks_data = decode_secret("KEYSTORE", ks)
-              # Guardar en android/ (raíz)
+              data = decode_smart(ks)
               with open("android/elena-release.jks", "wb") as f:
-                  f.write(ks_data)
-              print(f"✅ Keystore guardado en android/elena-release.jks ({len(ks_data)} bytes)")
-              
-              # También en android/app/ por si acaso
+                  f.write(data)
+              print(f"✅ Keystore guardado en android/ ({len(data)} bytes)")
               with open("android/app/elena-release.jks", "wb") as f:
-                  f.write(ks_data)
-              print("✅ Copia en android/app/elena-release.jks")
+                  f.write(data)
+              print("✅ Copia en android/app/")
           PYEOF
           
-      - name: Verify files
+      - name: Verify files & Keystore
         run: |
-          echo "=== Verificando archivos ==="
+          echo "=== Archivos generados ==="
           ls -lh android/key.properties android/elena-release.jks android/app/elena-release.jks 2>&1 || true
           echo ""
-          echo "=== Contenido de key.properties ==="
+          echo "=== key.properties ==="
           cat android/key.properties 2>/dev/null || echo "No existe"
           echo ""
-          echo "=== Verificando keystore ==="
           if [ -f android/elena-release.jks ]; then
-            keytool -list -keystore android/elena-release.jks -storepass $(grep storePassword android/key.properties | cut -d= -f2) 2>&1 | head -5 || echo "No se puede leer"
+            echo "=== Verificando firma del keystore ==="
+            KEYSTORE_PATH="android/elena-release.jks"
+            STORE_PASS=$(grep storePassword android/key.properties | cut -d= -f2 | tr -d '\r\n ')
+            if [ -n "$STORE_PASS" ]; then
+              keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASS" 2>&1 | head -3
+            else
+              echo "⚠️ No se encontró storePassword en key.properties"
+            fi
           fi
           
       - name: Make gradlew executable
         run: chmod +x android/gradlew
         
       - name: Build AAB
+        run: cd android && ./gradlew clean bundleRelease --no-daemon
+        
+      - name: Verify AAB & Upload
         run: |
-          cd android
-          echo "Iniciando build firmado..."
-          ./gradlew clean bundleRelease --no-daemon --stacktrace
-          
-      - name: Verify AAB signature
-        run: |
-          AAB_PATH="android/app/build/outputs/bundle/release/app-release.aab"
-          if [ -f "$AAB_PATH" ]; then
-            echo "✅ AAB generado: $(ls -lh $AAB_PATH)"
-            # Verificar si está firmado
-            unzip -l "$AAB_PATH" | grep -i "META-INF" | head -5 || echo "⚠️ No se encuentran archivos de firma"
+          AAB="android/app/build/outputs/bundle/release/app-release.aab"
+          if [ -f "$AAB" ]; then
+            echo "✅ AAB generado: $(ls -lh $AAB)"
+            echo "Verificando firma..."
+            unzip -l "$AAB" | grep "META-INF" | head -3 || echo "⚠️ No se encontraron metadatos de firma"
           else
             echo "❌ ERROR: No se generó el AAB"
-            find android/app/build/outputs -name "*.aab" 2>/dev/null || echo "No hay AABs en outputs"
+            exit 1
           fi
-          
+        if: always()
+        
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
