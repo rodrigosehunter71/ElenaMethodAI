@@ -1,8 +1,10 @@
+﻿# Ignorar carpetas generadas
+android/app/build/
+android/.gradle/
+android/.idea/
 node_modules/
-build/
 dist/
-coverage/
+*.aab
+*.apk
+*.jks
 .DS_Store
-*.log
-.env*
-!.env.example
