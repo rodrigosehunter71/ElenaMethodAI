@@ -23,17 +23,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
           
-      - name: Clean install dependencies
+      - name: Install & Build Web
         run: |
           rm -rf node_modules package-lock.json
           npm install --legacy-peer-deps
+          npm install react-is --save --legacy-peer-deps || true
+          npm run build
           
-      - name: Install missing peer dependencies
-        run: npm install react-is --save --legacy-peer-deps || true
-        
-      - name: Build web app
-        run: npm run build
-        
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -42,56 +38,79 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
         
-      - name: Create directories
-        run: |
-          mkdir -p android/app
-          mkdir -p android
-          
-      - name: Process Secrets
+      - name: Prepare Signing Files (Ultra-Robust Python Decoder)
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
           KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
           KEYSTORE: ${{ secrets.KEYSTORE }}
         run: |
+          mkdir -p android/app
           python3 << 'PYEOF'
-          import os, json, base64
-          
-          def process(name, path, check_json=False):
-              val = os.getenv(name, "")
-              if not val:
-                  print(f"⚠️ {name} not set")
-                  return
-              val = val.strip()
+          import os, json, base64, shutil, re
+
+          # === GOOGLE_SERVICES: Texto plano JSON ===
+          gs = os.environ.get("GOOGLE_SERVICES", "").strip()
+          if gs:
+              with open("android/app/google-services.json", "w") as f:
+                  f.write(gs)
               try:
-                  # Fix Base64 padding if missing
-                  pad = 4 - len(val) % 4
-                  if pad != 4: val += "=" * pad
-                  with open(path, "wb") as f:
-                      f.write(base64.b64decode(val))
-                  print(f"✅ {name} decoded from Base64")
-              except Exception as e:
-                  print(f"⚠️ Base64 failed ({e}), saving as plain text")
-                  with open(path, "w") as f:
-                      f.write(val)
+                  json.load(open("android/app/google-services.json"))
+                  print("✅ google-services.json válido")
+              except json.JSONDecodeError as e:
+                  print(f"❌ ERROR JSON: {e}")
+                  exit(1)
+
+          # === KEY_PROPERTIES: Texto plano ===
+          kp = os.environ.get("KEY_PROPERTIES", "").strip()
+          if kp:
+              with open("android/key.properties", "w") as f:
+                  f.write(kp.replace('\r', ''))
+              print("✅ key.properties creado")
+
+          # === KEYSTORE: Base64 con decodificación ultra-tolerante ===
+          ks_raw = os.environ.get("KEYSTORE", "").strip()
+          if ks_raw:
+              print(f"🔍 KEYSTORE recibido: {len(ks_raw)} caracteres")
               
-              if check_json:
-                  with open(path) as f:
-                      json.load(f)
-                  print(f"✅ {path} is valid JSON")
-              else:
-                  print(f"✅ {path} created")
-          
-          process("GOOGLE_SERVICES", "android/app/google-services.json", True)
-          process("KEY_PROPERTIES", "android/key.properties", False)
-          process("KEYSTORE", "android/app/elena-release.jks", False)
+              # Estrategia 1: Eliminar TODOS los espacios, tabs, saltos de línea
+              ks_clean = re.sub(r'\s+', '', ks_raw)
+              print(f"🔍 Después de limpiar espacios: {len(ks_clean)} caracteres")
+              
+              # Estrategia 2: Forzar padding correcto
+              padding = 4 - (len(ks_clean) % 4)
+              if padding != 4:
+                  ks_clean += '=' * padding
+              
+              try:
+                  # Decodificar con validate=False para ser más tolerante
+                  ks_bytes = base64.b64decode(ks_clean, validate=False)
+                  
+                  # Verificar que sea un archivo JKS válido (magic number: 0xfeedfeed)
+                  if ks_bytes[:4] == b'\xfe\xed\xfe\xed' or ks_bytes[:4] == b'\xca\xfe\xba\xbe':
+                      with open("android/app/elena-release.jks", "wb") as f:
+                          f.write(ks_bytes)
+                      shutil.copy("android/app/elena-release.jks", "android/elena-release.jks")
+                      print(f"✅ Keystore decodificado y guardado ({len(ks_bytes)} bytes)")
+                  else:
+                      print(f"⚠️ Advertencia: Los primeros bytes no parecen JKS, pero se guardó igual")
+                      with open("android/app/elena-release.jks", "wb") as f:
+                          f.write(ks_bytes)
+                      shutil.copy("android/app/elena-release.jks", "android/elena-release.jks")
+                      
+              except Exception as e:
+                  print(f"❌ ERROR decodificando KEYSTORE: {e}")
+                  print(f"🔍 Primeros 50 chars del secret limpio: {ks_clean[:50]}")
+                  exit(1)
+          else:
+              print("⚠️ KEYSTORE no configurado en secrets")
           PYEOF
           
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
-        
-      - name: Build AAB
-        run: cd android && ./gradlew bundleRelease --no-daemon
-        
+      - name: Build Signed AAB
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew clean bundleRelease --no-daemon
+          
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
